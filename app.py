@@ -3,8 +3,8 @@ from flask import Flask, request
 app = Flask(__name__)
 
 @app.route("/")
-def home():
-    return "Servidor Flask activo 🚀"
+def index():
+    return "Servidor activo 🚀"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():

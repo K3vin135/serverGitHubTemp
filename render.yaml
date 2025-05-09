@@ -2,6 +2,13 @@ services:
   - type: web
     name: flask-webhook-demo
     runtime: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python app.py"
+    repo: https://github.com/TU_USUARIO/flask-webhook-demo # Reemplaza con tu URL real
+    branch: main # o la rama que uses (por ejemplo: master)
     plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    autoDeploy: true
+    envVars: # Puedes añadir claves aquí si usas base de datos luego
+      - key: FLASK_ENV
+        value: production
