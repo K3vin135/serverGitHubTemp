@@ -1,3 +1,2 @@
-flask
-psycopg2-binary
-pandas
+requests-oauthlib
+arduino-iot-client
