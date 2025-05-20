@@ -74,7 +74,8 @@ def generate_data():
     bq_client = bigquery.Client(project=PROJECT_ID)
     table_ref = f"{PROJECT_ID}.{DATASET}.{TABLE}"
     
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pacific = datetime.timezone(datetime.timedelta(hours=-7))
+    now = datetime.datetime.now(pacific).isoformat()
 
     rows = []
     for p in props:
