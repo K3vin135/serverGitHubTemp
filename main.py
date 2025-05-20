@@ -59,6 +59,7 @@ def generate_data():
     # ——————————————————————————
     print(f"\n🔎 Variables en el Thing {THING_ID}:")
     props_api = iot.PropertiesV2Api(client)
+    props = []
     try:
         props = props_api.properties_v2_list(id=THING_ID, show_deleted=False)
         if not props:
