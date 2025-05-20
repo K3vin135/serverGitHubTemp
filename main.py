@@ -6,6 +6,16 @@ import iot_api_client as iot
 from iot_api_client.rest import ApiException
 from iot_api_client.configuration import Configuration
 import base64
+from google.cloud import bigquery
+import datetime
+
+import functions_framework
+
+
+# Ruta completa de BigQuery: proyecto.dataset.tabla
+PROJECT_ID = "florexpotemp"
+DATASET = "iot_dataset"
+TABLE = "iot_dataset_table"
 
 
 def generate_data():
@@ -58,16 +68,32 @@ def generate_data():
                 print(f" • {p.variable_name}: {p.last_value}")
     except ApiException as e:
         print(f"Error listando propiedades [{e.status}]:\n{e.body}")
- 
-def hello_pubsub(event, context):
-    """Triggered from a message on a Cloud Pub/Sub topic.
-    Args:
-         event (dict): Event payload.
-         context (google.cloud.functions.Context): Metadata for the event.
-    """
-    pubsub_message = base64.b64decode(event['data']).decode('utf-8')
-    print(pubsub_message)
-    generate_data()
 
-if __name__ == "__main__":
-    hello_pubsub('data', 'context')
+    # 4. Inserción estática en BigQuery (value siempre en columna 'value')
+    bq_client = bigquery.Client(project=PROJECT_ID)
+    table_ref = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+    
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    rows = []
+    for p in props:
+        rows.append({
+            "thingId": THING_ID,
+            "value": round(float(p.last_value), 3),
+            "ts": now
+        })
+
+    errors = bq_client.insert_rows_json(table_ref, rows)
+    if errors:
+        print("❌ Errores al insertar en BigQuery:", errors)
+    else:
+        print(f"✅ Insertadas {len(rows)} filas en {table_ref}")
+
+
+         
+# Triggered from a message on a Cloud Pub/Sub topic.
+@functions_framework.cloud_event
+def hello_pubsub(cloud_event):
+    # Print out the data from Pub/Sub, to prove that it worked
+    print(base64.b64decode(cloud_event.data["message"]["data"]))
+    generate_data()
