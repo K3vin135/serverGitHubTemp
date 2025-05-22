@@ -3,7 +3,7 @@ import azure.functions as func
 from oauthlib.oauth2 import BackendApplicationClient
 from requests_oauthlib import OAuth2Session
 import time
-from os import access
+import os, json
 import iot_api_client as iot
 from iot_api_client.rest import ApiException
 from iot_api_client.configuration import Configuration
@@ -19,8 +19,8 @@ DATASET = "iot_dataset"
 TABLE = "iot_dataset_table"
 app = func.FunctionApp()
 
-@app.timer_trigger(schedule="0 */1 * * * *", arg_name="myTimer", run_on_startup=False,
-              use_monitor=False) 
+@app.timer_trigger(schedule="0 */1 * * * *", arg_name="myTimer", run_on_startup=True,
+              use_monitor=True) 
 def timer_triggerAZ(myTimer: func.TimerRequest) -> None:
     if myTimer.past_due:
         logging.info('The timer is past due!')
@@ -29,8 +29,9 @@ def timer_triggerAZ(myTimer: func.TimerRequest) -> None:
 
 
 def generate_data():
-    # Get your token 
-    THING_ID="fa35cc83-f8c3-4b4d-8e33-432db36644bf"
+    get_bq_client()
+    # Get your token
+    THING_ID = "fa35cc83-f8c3-4b4d-8e33-432db36644bf"
     oauth_client = BackendApplicationClient(client_id="zCvVWlf186fmVSYWEL32F82vlhslElQ5")
     token_url = "https://api2.arduino.cc/iot/v1/clients/token"
 
@@ -80,7 +81,7 @@ def generate_data():
         print(f"Error listing properties [{e.status}]:\n{e.body}")
 
     # 4. Static insertion into BigQuery (value always in column 'value')
-    bq_client = bigquery.Client(project=PROJECT_ID)
+    bq_client = get_bq_client()
     table_ref = f"{PROJECT_ID}.{DATASET}.{TABLE}"
     
     pacific = datetime.timezone(datetime.timedelta(hours=-7))
@@ -99,3 +100,11 @@ def generate_data():
         print(" Errors inserting into BigQuery:", errors)
     else:
         print(f" Inserted {len(rows)} rows into {table_ref}")
+
+def get_bq_client():
+    # 1) Leer la variable de entorno que definiste en Azure
+    key_json = os.environ["BIGQUERY_KEY"]
+    # 2) Parsear el JSON en un dict de Python
+    info = json.loads(key_json)
+    # 3) Construir el cliente usando las credenciales en memoria
+    return bigquery.Client.from_service_account_info(info)
