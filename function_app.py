@@ -1,27 +1,36 @@
 import logging
+import os
+import datetime
+
 import azure.functions as func
 from oauthlib.oauth2 import BackendApplicationClient
 from requests_oauthlib import OAuth2Session
-import time
-import os, json
 import iot_api_client as iot
 from iot_api_client.rest import ApiException
-from iot_api_client.configuration import Configuration
-import base64
-from google.cloud import bigquery
-import datetime
+import pyodbc
 
-import functions_framework
+# Configuración de Arduino IoT
+THING_ID = "fa35cc83-f8c3-4b4d-8e33-432db36644bf"
+CLIENT_ID = "zCvVWlf186fmVSYWEL32F82vlhslElQ5"
+CLIENT_SECRET = "h6pLTSjq1UEfjIzbmXKITv9eIF5jH10qiXPUADOHy0doAy7qLvTg6V3y3rvkAePs"
 
-# Ruta completa de BigQuery: proyecto.dataset.tabla
-PROJECT_ID = "florexpotemp"
-DATASET = "iot_dataset"
-TABLE = "iot_dataset_table"
+# Nombre de la variable de entorno que contiene tu connection string
+ENV_DB_CONN = "DB_CONN_ENV"
+
+# Obtener la conexión cuando se carga el módulo
+conn_str = os.getenv(ENV_DB_CONN)
+if not conn_str:
+    raise RuntimeError(f"La variable de entorno {ENV_DB_CONN} no está definida.")
+
 app = func.FunctionApp()
 
-@app.timer_trigger(schedule="0 */1 * * * *", arg_name="myTimer", run_on_startup=True,
-              use_monitor=True) 
-def timer_triggerAZ(myTimer: func.TimerRequest) -> None:
+@app.timer_trigger(
+    schedule="0 */1 * * * *",  # cada minuto
+    arg_name="myTimer",
+    run_on_startup=False,
+    use_monitor=False
+)
+def timer_trigger(myTimer: func.TimerRequest) -> None:
     if myTimer.past_due:
         logging.info('The timer is past due!')
     generate_data()
@@ -29,82 +38,57 @@ def timer_triggerAZ(myTimer: func.TimerRequest) -> None:
 
 
 def generate_data():
-    get_bq_client()
-    # Get your token
-    THING_ID = "fa35cc83-f8c3-4b4d-8e33-432db36644bf"
-    oauth_client = BackendApplicationClient(client_id="zCvVWlf186fmVSYWEL32F82vlhslElQ5")
-    token_url = "https://api2.arduino.cc/iot/v1/clients/token"
-
+    # --- 1) Autenticación con Arduino IoT Cloud ---
+    oauth_client = BackendApplicationClient(client_id=CLIENT_ID)
     oauth = OAuth2Session(client=oauth_client)
     token = oauth.fetch_token(
-        token_url=token_url,
-        client_id="zCvVWlf186fmVSYWEL32F82vlhslElQ5",
-        client_secret="h6pLTSjq1UEfjIzbmXKITv9eIF5jH10qiXPUADOHy0doAy7qLvTg6V3y3rvkAePs",
+        token_url="https://api2.arduino.cc/iot/v1/clients/token",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
         include_client_id=True,
-        audience="https://api2.arduino.cc/iot",
+        audience="https://api2.arduino.cc/iot"
     )
-
-    # store access token in access_token variable
-    access_token = token.get("access_token")
-    # print access token
     client_config = iot.Configuration(host="https://api2.arduino.cc")
-    client_config.access_token = access_token
+    client_config.access_token = token.get("access_token")
     client = iot.ApiClient(client_config)
 
-    print(client)
-
-    # ——————————————————————————
-    # 5. (Optional) List your Things to verify the ID
-    # ——————————————————————————
-    print("\n Available Things:")
-    things_api = iot.ThingsV2Api(client)
-    try:
-        things = things_api.things_v2_list(show_properties=False)
-        for t in things:
-            print(f"  {t.id}  ,  {t.name}")
-    except ApiException as e:
-        print(f"Error listing Things [{e.status}]: {e.body}")
-
-    # ——————————————————————————
-    # 6. List the variables of your Thing
-    # ——————————————————————————
-    print(f"\n Variables in Thing {THING_ID}:")
+    # --- 2) Listar propiedades del Thing ---
     props_api = iot.PropertiesV2Api(client)
     try:
         props = props_api.properties_v2_list(id=THING_ID, show_deleted=False)
-        if not props:
-            print("  (No variables defined in this Thing)")
-        else:
-            for p in props:
-                print(f" • {p.variable_name}: {p.last_value}")
     except ApiException as e:
-        print(f"Error listing properties [{e.status}]:\n{e.body}")
+        logging.error(f"Error listando propiedades [{e.status}]: {e.body}")
+        return
 
-    # 4. Static insertion into BigQuery (value always in column 'value')
-    bq_client = get_bq_client()
-    table_ref = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-    
+    # --- 3) Preparar datos a insertar ---
     pacific = datetime.timezone(datetime.timedelta(hours=-7))
-    now = datetime.datetime.now(pacific).isoformat()
+    now = datetime.datetime.now(pacific)
 
     rows = []
     for p in props:
         rows.append({
             "thingId": THING_ID,
-            "value": round(float(p.last_value), 3)+20,
+            "value": round(float(p.last_value), 3) + 20,
             "ts": now
         })
 
-    errors = bq_client.insert_rows_json(table_ref, rows)
-    if errors:
-        print(" Errors inserting into BigQuery:", errors)
-    else:
-        print(f" Inserted {len(rows)} rows into {table_ref}")
+    # --- 4) Insertar en SQL Server ---
+    insert_into_sql(rows)
 
-def get_bq_client():
-    # 1) Leer la variable de entorno que definiste en Azure
-    key_json = os.environ["BIGQUERY_KEY"]
-    # 2) Parsear el JSON en un dict de Python
-    info = json.loads(key_json)
-    # 3) Construir el cliente usando las credenciales en memoria
-    return bigquery.Client.from_service_account_info(info)
+
+def insert_into_sql(rows):
+    # Usar conn_str cargada al inicio
+    try:
+        conn = pyodbc.connect(conn_str)
+        cursor = conn.cursor()
+        for row in rows:
+            cursor.execute(
+                "INSERT INTO [dbo].[TempData] ([thingId],[value],[ts]) VALUES (?,?,?)",
+                row["thingId"], row["value"], str(row["ts"])
+            )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logging.info(f"Inserted {len(rows)} rows into SQL Server")
+    except Exception as e:
+        logging.error(f"Error inserting into SQL Server: {e}")

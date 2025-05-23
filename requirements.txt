@@ -8,3 +8,4 @@ requests-oauthlib
 arduino-iot-client
 
 google-cloud-bigquery>=3.8.0
+pyodbc
