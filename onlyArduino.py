@@ -37,25 +37,28 @@ while True:
     # ——————————————————————————
     print("\n📋 Things disponibles:")
     things_api = iot.ThingsV2Api(client)
+    props_api = iot.PropertiesV2Api(client)
     try:
         things = things_api.things_v2_list(show_properties=False)
         for t in things:
-            print(f" • {t.id}  →  {t.name}")
+            props = props_api.properties_v2_list(id=t.id, show_deleted=False)
+            for p in props:
+                print(f" • {t.id}  →  {t.name} ({p.variable_name} = {p.last_value})")
     except ApiException as e:
         print(f"Error listando Things [{e.status}]: {e.body}")
 
     # ——————————————————————————
     # 6. Listar las variables de tu Thing
-    # ——————————————————————————
-    print(f"\n🔎 Variables en el Thing {THING_ID}:")
-    props_api = iot.PropertiesV2Api(client)
-    try:
-        props = props_api.properties_v2_list(id=THING_ID, show_deleted=False)
-        if not props:
-            print("  (No hay variables definidas en este Thing)")
-        else:
-            for p in props:
-                print(f" • {p.variable_name}: {p.last_value}")
-    except ApiException as e:
-        print(f"Error listando propiedades [{e.status}]:\n{e.body}")
+    # # ——————————————————————————
+    # print(f"\n🔎 Variables en el Thing {THING_ID}:")
+    # props_api = iot.PropertiesV2Api(client)
+    # try:
+    #     props = props_api.properties_v2_list(id=THING_ID, show_deleted=False)
+    #     if not props:
+    #         print("  (No hay variables definidas en este Thing)")
+    #     else:
+    #         for p in props:
+    #             print(f" • {p.variable_name}: {p.last_value}")
+    # except ApiException as e:
+    #     print(f"Error listando propiedades [{e.status}]:\n{e.body}")
     time.sleep(10)  
